@@ -38,4 +38,6 @@
      (not= (count arguments) 1) (exit 1 (usage summary))
      errors                     (exit 1 (error-msg errors)))
 
-    (stream (str "http://" (first arguments) ".rpod.ru"))))
+    (print options)
+    (comment
+      (stream (str "http://" (first arguments) ".rpod.ru")))))

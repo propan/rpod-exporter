@@ -1,6 +1,9 @@
 (ns rpod-exporter.extractor
   (:require [net.cgrand.enlive-html :as enlive]))
 
+(def source-date-format "dd MMM yyyy HH:mm")
+(def target-date-format "yyyy-MM-dd HH:mm")
+
 (defn- next-page-url
   [content]
   (when-let [link (first (enlive/select content [:.Navigator :#next_page]))]
@@ -26,11 +29,25 @@
       (first)
       (get-in [:attrs :href])))
 
+(defn- trasform-date-format
+  "Converts date string in ru locale to en"
+  [date]
+  (when date
+    ;; for some reason formater DateTimeFormatter.withLocale didn't work
+    ;; so let's improvise
+    (let [current-locale (java.util.Locale/getDefault)]
+      (java.util.Locale/setDefault (java.util.Locale. "ru" "RU"))
+      (let [parsed-date (java.time.LocalDateTime/parse date (java.time.format.DateTimeFormatter/ofPattern source-date-format))]
+        ;;restore original locale
+        (java.util.Locale/setDefault current-locale)
+        (.format parsed-date (java.time.format.DateTimeFormatter/ofPattern target-date-format))))))
+
 (defn- podcast-date
   [post]
   (-> post
       (enlive/select [:.podcast_date :span enlive/text])
-      (first)))
+      (first)
+      (trasform-date-format)))
 
 (defn- podcast-tags
   [post]
@@ -76,8 +93,9 @@
 
 (defn stream
   [url]
-  (when-let [content (enlive/html-resource (java.net.URL. url))]
-    (let [podcasts (enlive/select content [:.podcast])]
-      (if-let [next-page (next-page-url content)]
-        (lazy-cat (map extract-post podcasts) (stream next-page))
-        podcasts))))
+  (lazy-seq
+   (when-let [content (enlive/html-resource (java.net.URL. url))]
+     (let [podcasts (enlive/select content [:.podcast])]
+       (if-let [next-page (next-page-url content)]
+         (lazy-cat (map extract-post podcasts) (stream next-page))
+         podcasts)))))
