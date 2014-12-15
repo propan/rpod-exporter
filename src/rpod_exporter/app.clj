@@ -1,5 +1,6 @@
 (ns rpod-exporter.app
   (:require [clojure.tools.cli :refer [parse-opts]]
+            [clojure.java.io :as io]
             [clojure.string :as string]
             [rpod-exporter.export.json :refer [export-to-file]]
             [rpod-exporter.extractor :refer [stream]])
@@ -31,9 +32,33 @@
         ""]
        (string/join \newline)))
 
-(defn generate-file-name
-  [post]
-  (str "./file-" (:id post) ".json"))
+(defn- file-name
+  [url]
+  (.getName (java.io.File. url)))
+
+(defn- file-extension
+  [url]
+  (let [pos       (.lastIndexOf url ".")]
+    (if (pos? pos) (subs url pos) "")))
+
+(defn- download-file-to
+  [to-path from-url]
+  (with-open [in  (io/input-stream from-url)
+              out (io/output-stream to-path)]
+    (io/copy in out)))
+
+(defn export-podcast
+  [base-path {:keys [id] :as entry}]
+  (let [path (str base-path "/" id)]
+    (.mkdirs (java.io.File. path))
+    ;; export entry to json
+    (export-to-file (str path "/entry.json") entry)
+    ;; download file itself
+    (download-file-to (str path "/" (file-name (:download entry))) (:download entry))
+    ;; download all images
+    (doseq [[index image] (map-indexed vector (:images entry))]
+      (let [from-url (:href image)]
+        (download-file-to (str path "/" index (file-extension from-url)) from-url)))))
 
 (defn -main
   [& args]
@@ -43,6 +68,12 @@
      (not= (count arguments) 1) (exit 1 (usage summary))
      errors                     (exit 1 (error-msg errors)))
 
+    (let [export-folder (java.io.File. (:output options))]
+      ;; check if the output file already exists
+      (when (.exists export-folder)
+        (exit 0 (str export-folder " already exists. Aborting.")))
+      (.mkdirs export-folder))
+
     (doseq [entry (stream (str "http://" (first arguments) ".rpod.ru"))]
-      (let [file-name (generate-file-name entry)]
-        (export-to-file file-name entry)))))
+      (println "Exporting:" (:date entry))
+      (export-podcast (:output options) entry))))
