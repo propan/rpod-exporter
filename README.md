@@ -11,7 +11,7 @@ a command line utility to backup podcast data from dying RPOD.RU
 
 
 ```lang=bash
-java -jar rpod-exporter-0.1.0-standalone.jar you-podcast-feed
+java -jar rpod-exporter-0.1.0-standalone.jar your-podcast-feed
 ```
 
 ## Note
