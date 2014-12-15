@@ -1,8 +1,35 @@
 (ns rpod-exporter.extractor
   (:require [net.cgrand.enlive-html :as enlive]))
 
-(def source-date-format "dd MMM yyyy HH:mm")
-(def target-date-format "yyyy-MM-dd HH:mm")
+(def source-date-format (-> (java.time.format.DateTimeFormatterBuilder.)
+                          (.appendValue java.time.temporal.ChronoField/DAY_OF_MONTH)
+                          (.appendLiteral " ")
+                          (.appendText java.time.temporal.ChronoField/MONTH_OF_YEAR)
+                          (.appendLiteral " ")
+                          (.appendValue java.time.temporal.ChronoField/YEAR)
+                          (.appendLiteral " ")
+                          (.appendValue java.time.temporal.ChronoField/HOUR_OF_DAY)
+                          (.appendLiteral ":")
+                          (.appendValue java.time.temporal.ChronoField/MINUTE_OF_HOUR)
+                          (.toFormatter (java.util.Locale. "ru" "RU"))))
+
+(def target-date-format (-> (java.time.format.DateTimeFormatterBuilder.)
+                          (.appendValue java.time.temporal.ChronoField/YEAR 4)
+                          (.appendLiteral "-")
+                          (.appendValue java.time.temporal.ChronoField/MONTH_OF_YEAR 2)
+                          (.appendLiteral "-")
+                          (.appendValue java.time.temporal.ChronoField/DAY_OF_MONTH 2)
+                          (.appendLiteral " ")
+                          (.appendValue java.time.temporal.ChronoField/HOUR_OF_DAY 2)
+                          (.appendLiteral ":")
+                          (.appendValue java.time.temporal.ChronoField/MINUTE_OF_HOUR 2)
+                          (.toFormatter java.util.Locale/ENGLISH)))
+
+(def simple-date-format (-> (java.time.format.DateTimeFormatterBuilder.)
+                            (.appendValue java.time.temporal.ChronoField/YEAR 4)
+                            (.appendValue java.time.temporal.ChronoField/MONTH_OF_YEAR 2)
+                            (.appendValue java.time.temporal.ChronoField/DAY_OF_MONTH 2)
+                            (.toFormatter java.util.Locale/ENGLISH)))
 
 (defn- next-page-url
   [content]
@@ -29,25 +56,27 @@
       (first)
       (get-in [:attrs :href])))
 
-(defn- trasform-date-format
+(defn- to-english-locale
   "Converts date string in ru locale to en"
   [date]
   (when date
-    ;; for some reason formater DateTimeFormatter.withLocale didn't work
-    ;; so let's improvise
-    (let [current-locale (java.util.Locale/getDefault)]
-      (java.util.Locale/setDefault (java.util.Locale. "ru" "RU"))
-      (let [parsed-date (java.time.LocalDateTime/parse date (java.time.format.DateTimeFormatter/ofPattern source-date-format))]
-        ;;restore original locale
-        (java.util.Locale/setDefault current-locale)
-        (.format parsed-date (java.time.format.DateTimeFormatter/ofPattern target-date-format))))))
+    (-> date
+      (java.time.LocalDateTime/parse source-date-format)
+      (.format target-date-format))))
+
+(defn- to-plain
+  [date]
+  (when date
+    (-> date
+        (java.time.LocalDateTime/parse source-date-format)
+        (.format simple-date-format))))
 
 (defn- podcast-date
-  [post]
+  [post format-fn]
   (-> post
       (enlive/select [:.podcast_date :span enlive/text])
       (first)
-      (trasform-date-format)))
+      (format-fn)))
 
 (defn- podcast-tags
   [post]
@@ -78,13 +107,15 @@
 
 (defn- podcast-notes
   [post]
-  {:notes     (into [] (enlive/select post [:.podcast_body :li enlive/text]))
+  {:notes     (into [] (filter string?
+                               (enlive/select post [:.podcast_body :li enlive/text])))
    :copyright (post-image-copyright post)})
 
 (defn- extract-post
   [post]
-  {:title    (title post)
-   :date     (podcast-date post)
+  {:id       (podcast-date post to-plain)
+   :title    (title post)
+   :date     (podcast-date post to-english-locale)
    :url      (podcast-url post)
    :download (download-url post)
    :images   (podcast-images post)
@@ -95,7 +126,7 @@
   [url]
   (lazy-seq
    (when-let [content (enlive/html-resource (java.net.URL. url))]
-     (let [podcasts (enlive/select content [:.podcast])]
+     (let [podcasts (map extract-post (enlive/select content [:.podcast]))]
        (if-let [next-page (next-page-url content)]
-         (lazy-cat (map extract-post podcasts) (stream next-page))
+         (lazy-cat podcasts (stream next-page))
          podcasts)))))

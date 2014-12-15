@@ -1,12 +1,13 @@
 (ns rpod-exporter.app
   (:require [clojure.tools.cli :refer [parse-opts]]
             [clojure.string :as string]
+            [rpod-exporter.export.json :refer [export-to-file]]
             [rpod-exporter.extractor :refer [stream]])
   (:gen-class :main true))
 
 (def cli-options
   [["-o" "--output=/path/to/export/folder" "A folder into which the exported data will be stored"
-    :default "./export/{podcast-id}"]
+    :default "./export/"]
    ["-h" "--help"]])
 
 (defn error-msg [errors]
@@ -30,6 +31,10 @@
         ""]
        (string/join \newline)))
 
+(defn generate-file-name
+  [post]
+  (str "./file-" (:id post) ".json"))
+
 (defn -main
   [& args]
   (let [{:keys [options arguments errors summary]} (parse-opts args cli-options)]
@@ -38,6 +43,6 @@
      (not= (count arguments) 1) (exit 1 (usage summary))
      errors                     (exit 1 (error-msg errors)))
 
-    (print options)
-    (comment
-      (stream (str "http://" (first arguments) ".rpod.ru")))))
+    (doseq [entry (stream (str "http://" (first arguments) ".rpod.ru"))]
+      (let [file-name (generate-file-name entry)]
+        (export-to-file file-name entry)))))
